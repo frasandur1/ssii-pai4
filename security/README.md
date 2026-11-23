@@ -51,5 +51,5 @@ target to a third-party system without explicit authorization.
 
 ## Merge protection
 
-After the workflow has run at least once, configure the repository's `master`
+After the workflow has run at least once, configure the repository's `develop`
 branch rule to require the `Build, test and DAST - ZAP (blocking)` status check.
