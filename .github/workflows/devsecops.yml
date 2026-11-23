@@ -39,16 +39,33 @@ jobs:
           mkdir -p .cache/dependency-check security-results/dependency-check
           chmod 777 .cache/dependency-check security-results/dependency-check
 
+      - name: "Check external service configuration"
+        id: sca_config
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+        run: |
+          if [[ -n "$NVD_API_KEY" ]]; then
+            echo "nvd_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "nvd_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=SCA configuration::NVD_API_KEY is not configured; Dependency-Check is skipped until the secret is added."
+          fi
+
+          if [[ -n "$DEFECTDOJO_URL" && -n "$DEFECTDOJO_API_TOKEN" ]]; then
+            echo "defectdojo_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "defectdojo_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the SCA report will not be imported."
+          fi
+
       - name: "Scan Node.js dependencies"
+        if: steps.sca_config.outputs.nvd_configured == 'true'
         id: dependency_check
         env:
           NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          nvd_args=()
-          if [[ -n "$NVD_API_KEY" ]]; then
-            nvd_args+=(--nvdApiKey "$NVD_API_KEY")
-          fi
-
           set +e
           docker run --rm \
             --volume "$PWD:/src:ro" \
@@ -64,7 +81,7 @@ jobs:
             --prettyPrint \
             --nodePackageSkipDevDependencies \
             --failOnCVSS 7 \
-            "${nvd_args[@]}"
+            --nvdApiKey "$NVD_API_KEY"
           scan_status=$?
           set -e
 
@@ -76,7 +93,9 @@ jobs:
           echo "gate_status=$scan_status" >> "$GITHUB_OUTPUT"
 
       - name: "Apply SCA warning gate"
-        if: steps.dependency_check.outputs.gate_status != '0'
+        if: >-
+          steps.dependency_check.outputs.gate_status != '' &&
+          steps.dependency_check.outputs.gate_status != '0'
         continue-on-error: true
         run: |
           echo "::warning title=SCA quality gate::Dependency-Check found at least one vulnerability with CVSS 7.0 or higher. The pipeline continues in warning mode."
@@ -87,6 +106,7 @@ jobs:
       - name: "Import SCA report into DefectDojo"
         if: >-
           always() &&
+          steps.sca_config.outputs.defectdojo_configured == 'true' &&
           hashFiles('security-results/dependency-check/dependency-check-report.xml') != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: DefectDojo/defectdojo-action@19cdb2252df096dde1757c6c4e13158dda922311 # v1
@@ -103,7 +123,7 @@ jobs:
         with:
           name: dependency-check-reports
           path: security-results/dependency-check/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 30
 
   sast:
@@ -118,6 +138,19 @@ jobs:
         run: |
           mkdir -p security-results/semgrep
           chmod 777 security-results/semgrep
+
+      - name: "Check DefectDojo configuration"
+        id: sast_config
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+        run: |
+          if [[ -n "$DEFECTDOJO_URL" && -n "$DEFECTDOJO_API_TOKEN" ]]; then
+            echo "defectdojo_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "defectdojo_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the SAST report will not be imported."
+          fi
 
       - name: "Scan JavaScript and TypeScript source"
         run: |
@@ -153,6 +186,7 @@ jobs:
       - name: "Import SAST report into DefectDojo"
         if: >-
           always() &&
+          steps.sast_config.outputs.defectdojo_configured == 'true' &&
           hashFiles('security-results/semgrep/semgrep-report.json') != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: DefectDojo/defectdojo-action@19cdb2252df096dde1757c6c4e13158dda922311 # v1
@@ -229,6 +263,19 @@ jobs:
           mkdir -p security-results/zap
           chmod 777 security-results/zap
 
+      - name: "Check DefectDojo configuration"
+        id: dast_config
+        env:
+          DEFECTDOJO_URL: ${{ secrets.DEFECTDOJO_URL }}
+          DEFECTDOJO_API_TOKEN: ${{ secrets.DEFECTDOJO_API_TOKEN }}
+        run: |
+          if [[ -n "$DEFECTDOJO_URL" && -n "$DEFECTDOJO_API_TOKEN" ]]; then
+            echo "defectdojo_configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "defectdojo_configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the DAST report will not be imported."
+          fi
+
       - name: "Run OWASP ZAP full scan"
         id: zap_scan
         run: |
@@ -242,6 +289,7 @@ jobs:
       - name: "Import DAST report into DefectDojo"
         if: >-
           always() &&
+          steps.dast_config.outputs.defectdojo_configured == 'true' &&
           hashFiles('security-results/zap/zap-report.xml') != '' &&
           (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
         uses: DefectDojo/defectdojo-action@19cdb2252df096dde1757c6c4e13158dda922311 # v1

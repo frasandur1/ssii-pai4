@@ -25,12 +25,18 @@ artifacts for 30 days.
   `https://defectdojo.example.com`.
 - `DEFECTDOJO_API_TOKEN`: DefectDojo API v2 token with permission to create and
   reimport tests for this asset.
-- `NVD_API_KEY`: NVD API key used by Dependency-Check. The workflow works
-  without it, but initial database updates are significantly slower.
+- `NVD_API_KEY`: NVD API key used by Dependency-Check to initialize and update
+  its vulnerability database.
 
 Each scanner report is reimported into DefectDojo even when its quality gate
 fires. DefectDojo creates separate tests named `OWASP Dependency-Check`,
 `Semgrep Community Edition`, and `OWASP ZAP Full Scan`.
+
+During initial setup, missing external-service secrets produce explicit workflow
+warnings instead of preventing the later scanners from running. Dependency-Check
+is skipped until `NVD_API_KEY` is configured, and DefectDojo imports are skipped
+until both DefectDojo secrets are configured. All three secrets are required for
+the final assessed pipeline.
 
 GitHub does not provide secrets to pull requests from forks. The scans and
 artifact uploads still run for those pull requests, but the DefectDojo import
