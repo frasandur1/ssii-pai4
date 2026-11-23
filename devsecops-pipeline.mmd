@@ -1,0 +1,103 @@
+flowchart LR
+    PR["Pull request<br/>opened, reopened, synchronized or marked ready"]
+
+    subgraph BUILD["1. Build and test"]
+        direction TB
+        CHECKOUT["Checkout PR merge commit"]
+        INSTALL["Install dependencies<br/>Node.js 24 + npm"]
+        TEST["Build, lint and automated tests"]
+        IMAGE["Build Juice Shop Docker image"]
+
+        CHECKOUT --> INSTALL --> TEST --> IMAGE
+    end
+
+    subgraph STATIC["2. Security analysis - warning gates"]
+        direction TB
+
+        subgraph SCA["SCA"]
+            direction TB
+            ODC["OWASP Dependency-Check<br/>root and frontend package.json"]
+            ODC_REPORT["dependency-check-report.xml"]
+            ODC_GATE["WARNING gate<br/>1+ High or Critical finding<br/>Annotate PR; pipeline continues"]
+
+            ODC --> ODC_REPORT --> ODC_GATE
+        end
+
+        subgraph SAST["SAST"]
+            direction TB
+            SEMGREP["Semgrep Community Edition<br/>JavaScript and TypeScript security rules"]
+            SEMGREP_REPORT["semgrep-report.json"]
+            SEMGREP_GATE["WARNING gate<br/>1+ ERROR finding, mapped to High<br/>Annotate PR; pipeline continues"]
+
+            SEMGREP --> SEMGREP_REPORT --> SEMGREP_GATE
+        end
+    end
+
+    subgraph DYNAMIC["3. Ephemeral test environment and DAST"]
+        direction TB
+        START["Run Juice Shop container<br/>localhost on GitHub-hosted runner"]
+        HEALTH["Wait for HTTP health check"]
+        ZAP["OWASP ZAP Full Scan<br/>Spider + Ajax Spider + active scan"]
+        ZAP_REPORT["zap-report.xml"]
+        ZAP_GATE{"BLOCKING gate<br/>1+ High finding?"}
+
+        START --> HEALTH --> ZAP --> ZAP_REPORT --> ZAP_GATE
+    end
+
+    subgraph RESULT["4. Pull-request result"]
+        direction TB
+        PASS["Security check passes<br/>PR can be merged"]
+        FAIL["Security check fails<br/>PR merge is blocked"]
+    end
+
+    subgraph VM["Centralized vulnerability management"]
+        direction TB
+        IMPORT_SCA["Reimport SCA report via API"]
+        IMPORT_SAST["Reimport SAST report via API"]
+        IMPORT_DAST["Reimport DAST report via API"]
+        DD["DefectDojo<br/>Deduplicate, classify, prioritize and track"]
+
+        IMPORT_SCA --> DD
+        IMPORT_SAST --> DD
+        IMPORT_DAST --> DD
+    end
+
+    SECRETS["GitHub Actions secrets<br/>DEFECTDOJO_URL<br/>DEFECTDOJO_API_TOKEN<br/>NVD_API_KEY"]
+
+    PR --> CHECKOUT
+    CHECKOUT --> ODC
+    CHECKOUT --> SEMGREP
+
+    IMAGE --> START
+    ODC_GATE --> START
+    SEMGREP_GATE --> START
+
+    ZAP_GATE -- "No" --> PASS
+    ZAP_GATE -- "Yes" --> FAIL
+
+    ODC_REPORT -. "Always import" .-> IMPORT_SCA
+    SEMGREP_REPORT -. "Always import" .-> IMPORT_SAST
+    ZAP_REPORT -. "Always import" .-> IMPORT_DAST
+    SECRETS -.-> IMPORT_SCA
+    SECRETS -.-> IMPORT_SAST
+    SECRETS -.-> IMPORT_DAST
+
+    classDef trigger fill:#dbeafe,stroke:#2563eb,color:#172554,stroke-width:2px;
+    classDef process fill:#f8fafc,stroke:#475569,color:#0f172a;
+    classDef scanner fill:#ccfbf1,stroke:#0f766e,color:#134e4a,stroke-width:2px;
+    classDef report fill:#ede9fe,stroke:#7c3aed,color:#2e1065;
+    classDef warning fill:#ffedd5,stroke:#ea580c,color:#7c2d12,stroke-width:2px;
+    classDef blocking fill:#fee2e2,stroke:#dc2626,color:#7f1d1d,stroke-width:2px;
+    classDef success fill:#dcfce7,stroke:#16a34a,color:#14532d,stroke-width:2px;
+    classDef management fill:#dbeafe,stroke:#1d4ed8,color:#172554;
+    classDef secret fill:#fef3c7,stroke:#d97706,color:#78350f,stroke-dasharray: 5 5;
+
+    class PR trigger;
+    class CHECKOUT,INSTALL,TEST,IMAGE,START,HEALTH process;
+    class ODC,SEMGREP,ZAP scanner;
+    class ODC_REPORT,SEMGREP_REPORT,ZAP_REPORT report;
+    class ODC_GATE,SEMGREP_GATE warning;
+    class ZAP_GATE,FAIL blocking;
+    class PASS success;
+    class IMPORT_SCA,IMPORT_SAST,IMPORT_DAST,DD management;
+    class SECRETS secret;

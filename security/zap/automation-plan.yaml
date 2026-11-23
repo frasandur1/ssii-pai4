@@ -1,0 +1,79 @@
+env:
+  contexts:
+    - name: "OWASP Juice Shop"
+      urls:
+        - http://juice-shop:3000
+      includePaths:
+        - http://juice-shop:3000.*
+  parameters:
+    failOnError: true
+    failOnWarning: false
+    continueOnFailure: true
+    progressToStdout: true
+    maxDuration: 1200
+
+jobs:
+  - type: spider
+    parameters:
+      context: "OWASP Juice Shop"
+      url: http://juice-shop:3000
+      maxDuration: 2
+      maxDepth: 5
+
+  - type: spiderAjax
+    parameters:
+      context: "OWASP Juice Shop"
+      url: http://juice-shop:3000
+      maxDuration: 3
+      maxCrawlDepth: 5
+      numberOfBrowsers: 1
+      browserId: firefox-headless
+      inScopeOnly: true
+
+  - type: passiveScan-wait
+
+  - type: activeScan
+    parameters:
+      context: "OWASP Juice Shop"
+      maxRuleDurationInMins: 1
+      maxScanDurationInMins: 10
+      maxAlertsPerRule: 10
+      defaultStrength: Medium
+      defaultThreshold: Medium
+
+  - type: passiveScan-wait
+
+  - type: report
+    parameters:
+      template: traditional-xml
+      reportDir: /zap/reports
+      reportFile: zap-report.xml
+      reportTitle: "OWASP Juice Shop - ZAP Full Scan"
+      reportDescription: "Automated DAST report generated for the pull request."
+    risks:
+      - high
+      - medium
+      - low
+      - info
+
+  - type: report
+    parameters:
+      template: traditional-html
+      reportDir: /zap/reports
+      reportFile: zap-report.html
+      reportTitle: "OWASP Juice Shop - ZAP Full Scan"
+      reportDescription: "Automated DAST report generated for the pull request."
+    risks:
+      - high
+      - medium
+      - low
+      - info
+
+  - type: exitStatus
+    parameters:
+      errorLevel: High
+      warnLevel: Medium
+      okExitValue: 0
+      errorExitValue: 1
+      warnExitValue: 0
+    alwaysRun: true
