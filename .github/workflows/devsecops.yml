@@ -60,6 +60,12 @@ jobs:
             echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the SCA report will not be imported."
           fi
 
+      - name: "Generate dependency lockfiles for SCA"
+        if: steps.sca_config.outputs.nvd_configured == 'true'
+        run: |
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund --legacy-peer-deps
+          (cd frontend && npm install --package-lock-only --ignore-scripts --no-audit --no-fund --legacy-peer-deps)
+
       - name: "Scan Node.js dependencies"
         if: steps.sca_config.outputs.nvd_configured == 'true'
         id: dependency_check
@@ -74,12 +80,13 @@ jobs:
             "$DEPENDENCY_CHECK_IMAGE" \
             --project "OWASP Juice Shop" \
             --scan /src/package.json \
+            --scan /src/package-lock.json \
             --scan /src/frontend/package.json \
+            --scan /src/frontend/package-lock.json \
             --format XML \
             --format HTML \
             --out /report \
             --prettyPrint \
-            --nodePackageSkipDevDependencies \
             --failOnCVSS 7 \
             --nvdApiKey "$NVD_API_KEY"
           scan_status=$?
