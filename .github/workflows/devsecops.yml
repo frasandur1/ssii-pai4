@@ -120,7 +120,7 @@ jobs:
           defectdojo-url: ${{ secrets.DEFECTDOJO_URL }}
           api-token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
           file: security-results/dependency-check/dependency-check-report.xml
-          scan-type: Dependency Check
+          scan-type: Dependency Check Scan
           test-title: OWASP Dependency-Check
 
       - name: "Upload SCA reports"
@@ -354,7 +354,7 @@ jobs:
           defectdojo-url: ${{ secrets.DEFECTDOJO_URL }}
           api-token: ${{ secrets.DEFECTDOJO_API_TOKEN }}
           file: security-results/zap/zap-report.xml
-          scan-type: Zed Attack Proxy
+          scan-type: ZAP Scan
           test-title: OWASP ZAP Full Scan
 
       - name: "Upload DAST reports"
