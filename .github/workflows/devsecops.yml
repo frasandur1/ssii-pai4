@@ -60,7 +60,7 @@ jobs:
             echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the SCA report will not be imported."
           fi
 
-      - name: "Scan Node.js dependencies"
+      - name: "Run OWASP Dependency-Check"
         if: steps.sca_config.outputs.nvd_configured == 'true'
         id: dependency_check
         env:
@@ -84,13 +84,19 @@ jobs:
             --nvdApiKey "$NVD_API_KEY"
           scan_status=$?
           set -e
+          echo "gate_status=$scan_status" >> "$GITHUB_OUTPUT"
 
-          if [[ ! -s security-results/dependency-check/dependency-check-report.xml ]]; then
+      - name: "Validate Dependency-Check reports"
+        if: steps.sca_config.outputs.nvd_configured == 'true'
+        run: |
+          test -s security-results/dependency-check/dependency-check-report.xml || {
             echo "Dependency-Check did not produce its XML report." >&2
             exit 2
-          fi
-
-          echo "gate_status=$scan_status" >> "$GITHUB_OUTPUT"
+          }
+          test -s security-results/dependency-check/dependency-check-report.html || {
+            echo "Dependency-Check did not produce its HTML report." >&2
+            exit 2
+          }
 
       - name: "Apply SCA warning gate"
         if: >-
@@ -152,7 +158,7 @@ jobs:
             echo "::warning title=DefectDojo configuration::DEFECTDOJO_URL or DEFECTDOJO_API_TOKEN is missing; the SAST report will not be imported."
           fi
 
-      - name: "Scan JavaScript and TypeScript source"
+      - name: "Run Semgrep Community Edition"
         run: |
           docker run --rm \
             --volume "$PWD:/src" \
@@ -169,6 +175,17 @@ jobs:
             --json \
             --output /src/security-results/semgrep/semgrep-report.json \
             .
+
+      - name: "Validate Semgrep report"
+        run: |
+          test -s security-results/semgrep/semgrep-report.json || {
+            echo "Semgrep did not produce its JSON report." >&2
+            exit 2
+          }
+          jq -e '.results | type == "array"' security-results/semgrep/semgrep-report.json > /dev/null || {
+            echo "Semgrep produced an invalid JSON report." >&2
+            exit 2
+          }
 
       - name: "Apply SAST warning gate"
         id: semgrep_gate
@@ -238,7 +255,7 @@ jobs:
       - name: "Build Juice Shop Docker image"
         run: docker build --tag juice-shop:devsecops .
 
-      - name: "Start isolated Juice Shop test environment"
+      - name: "Run Juice Shop container"
         run: |
           docker network create devsecops
           docker run --detach \
@@ -247,6 +264,8 @@ jobs:
             --publish 127.0.0.1:3000:3000 \
             juice-shop:devsecops
 
+      - name: "Wait for HTTP health check"
+        run: |
           for attempt in {1..30}; do
             if curl --fail --silent --show-error http://127.0.0.1:3000/ > /dev/null; then
               exit 0
@@ -279,12 +298,50 @@ jobs:
       - name: "Run OWASP ZAP full scan"
         id: zap_scan
         run: |
+          set +e
           docker run --rm \
             --network devsecops \
             --volume "$PWD/security/zap/automation-plan.yaml:/zap/wrk/automation-plan.yaml:ro" \
             --volume "$PWD/security-results/zap:/zap/reports" \
             "$ZAP_IMAGE" \
             zap.sh -cmd -autorun /zap/wrk/automation-plan.yaml
+          scan_status=$?
+          set -e
+          echo "gate_status=$scan_status" >> "$GITHUB_OUTPUT"
+
+      - name: "Validate ZAP reports"
+        run: |
+          test -s security-results/zap/zap-report.xml || {
+            echo "ZAP did not produce its XML report." >&2
+            exit 2
+          }
+          test -s security-results/zap/zap-report.html || {
+            echo "ZAP did not produce its HTML report." >&2
+            exit 2
+          }
+
+      - name: "Evaluate DAST blocking gate"
+        id: dast_gate
+        run: |
+          if [[ "${{ steps.zap_scan.outputs.gate_status }}" == "0" ]]; then
+            echo "blocked=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "blocked=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: "Security check passes"
+        if: steps.dast_gate.outputs.blocked == 'false'
+        run: |
+          echo "### DAST blocking gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "OWASP ZAP found no High-risk alerts, so this security check passes." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: "Security check fails"
+        if: steps.dast_gate.outputs.blocked == 'true'
+        run: |
+          echo "::error title=DAST blocking gate::ZAP found at least one High-risk alert. The pull request is blocked."
+          echo "### DAST blocking gate" >> "$GITHUB_STEP_SUMMARY"
+          echo "OWASP ZAP found at least one High-risk alert, so this security check fails." >> "$GITHUB_STEP_SUMMARY"
+          exit 1
 
       - name: "Import DAST report into DefectDojo"
         if: >-
